@@ -1,0 +1,142 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+
+//@version=5
+indicator("Ichimoku MA Bands", overlay = true)
+
+src = close
+
+thirteenEma = ta.ema(close, 13)
+tl_13ema = plot(thirteenEma, color=color.teal, title='13 EMA',linewidth = 1, display = display.none)
+
+twentyfiveEma = ta.ema(close, 25)
+tl_25ema = plot(twentyfiveEma, color=color.fuchsia, title='25 EMA',linewidth = 1, display = display.none)
+
+emaColorFill_1326 = thirteenEma > twentyfiveEma ? color.new(color.blue,65) : thirteenEma < twentyfiveEma ? color.new(color.white,80) : color.new(color.yellow,35)
+
+fill(tl_13ema, tl_25ema, title='Trend Cloud Colors', color= emaColorFill_1326)
+
+ma_ATR  = ta.atr(5)
+nLoss = 3 * ma_ATR
+
+ma_ATRTrailingStop = 0.0
+ma_ATRTrailingStop := src > nz(ma_ATRTrailingStop[1], 0) and src[1] > nz(ma_ATRTrailingStop[1], 0) ? math.max(nz(ma_ATRTrailingStop[1]), src - nLoss) : src < nz(ma_ATRTrailingStop[1], 0) and src[1] < nz(ma_ATRTrailingStop[1], 0) ? math.min(nz(ma_ATRTrailingStop[1]), src + nLoss) : src > nz(ma_ATRTrailingStop[1], 0) ? src - nLoss : src + nLoss 
+
+ema   = ta.ema(src,1)
+ma_ATR_above = ta.crossover(ema, ma_ATRTrailingStop)
+ma_ATR_below = ta.crossover(ma_ATRTrailingStop, ema)
+
+ema_above = ema > close
+ema_below = ema < close
+
+atr_buy  = src > ma_ATRTrailingStop and ma_ATR_above 
+atr_sell = src < ma_ATRTrailingStop and ma_ATR_below
+
+plotshape(atr_buy,  title = "Buy Alert",  text = 'LONG',  style = shape.triangleup,   location = location.belowbar, color= color.green, textcolor = color.white, size = size.tiny)
+plotshape(atr_sell, title = "Sell Alert", text = 'SHORT', style = shape.triangledown, location = location.abovebar, color= color.red,   textcolor = color.white, size = size.tiny)
+
+cumu  = 'Full Data' 
+denom = 'Base Currency'
+
+binance   = true 
+binance2  = true 
+binance3  = true 
+
+chg_b       = 50 
+
+mex = syminfo.basecurrency=='BTC' ? 'XBT' : string(syminfo.basecurrency)
+[oid1, oi1] = request.security('BINANCE' + ":" + string(syminfo.basecurrency) + 'USDT.P_OI',  timeframe.period,  [close-close[1], close], ignore_invalid_symbol = true)
+[oid2, oi2] = request.security('BINANCE' + ":" + string(syminfo.basecurrency) + 'USD.P_OI',   timeframe.period,  [close-close[1], close], ignore_invalid_symbol = true)
+[oid3, oi3] = request.security('BINANCE' + ":" + string(syminfo.basecurrency) + 'BUSD.P_OI',  timeframe.period,  [close-close[1], close], ignore_invalid_symbol = true)
+
+deltaOI = (binance ? nz(oid1,0) : 0)   +   (binance2 ? nz(oid2,0)/close : 0)   +    (binance3 ? nz(oid3,0) : 0)   
+OI      = (binance ? nz(oi1,0) : 0)   +   (binance2 ? nz(oi2,0)/close : 0)   +    (binance3 ? nz(oi3,0) : 0)    
+
+// Conditions for positions entering and exiting
+priceUP   = close>open
+priceDOWN = close<open
+oiUP      = deltaOI>0
+oiDOWN    = deltaOI<0
+
+newlongs   = oiUP   and priceUP
+rektlongs  = oiDOWN and priceDOWN
+newshorts  = oiUP   and priceDOWN
+rektshorts = oiDOWN and priceUP
+
+vrc = cumu=='Visible Range' ? time > chart.left_visible_bar_time and time <= chart.right_visible_bar_time : true
+
+// Cumulation of positions entering and exiting
+longs_entering     = ta.cum(newlongs   and vrc   ?   (denom=='Base Currency' ? deltaOI : deltaOI * close) : 0)
+longs_exiting      = ta.cum(rektlongs  and vrc   ?   (denom=='Base Currency' ? deltaOI : deltaOI * close) : 0)
+shorts_entering    = ta.cum(newshorts  and vrc   ?   (denom=='Base Currency' ? deltaOI : deltaOI * close) : 0)
+shorts_exiting     = ta.cum(rektshorts and vrc   ?   (denom=='Base Currency' ? deltaOI : deltaOI * close) : 0)
+
+//CVD
+HighLow = high-low
+low_close = close>open ? open-low : close-low
+up_close = close>open ? high-close : high-open
+candle_size = HighLow - (up_close + low_close)
+candle_size_perchentage = candle_size/HighLow
+low_close_perchentage = low_close/HighLow
+up_close_perchentage = up_close/HighLow
+bull_volume = close>open ? (candle_size_perchentage + (up_close_perchentage + low_close_perchentage)/2)*volume : ((up_close_perchentage + low_close_perchentage)/2)* volume
+bear_volume = close<open ? (candle_size_perchentage + (up_close_perchentage + low_close_perchentage)/2)*volume : ((up_close_perchentage + low_close_perchentage)/2)* volume
+
+//TIMEFRAME CALCULATIONS
+adding_bull_volume_1 = ta.ema(bull_volume,14)
+adding_bear_volume_1 = ta.ema(bear_volume,14)
+cvd_delta = adding_bull_volume_1 - adding_bear_volume_1
+
+status = ""
+status_color = color.white
+if ((OI-OI[chg_b]) > 0) and (close > close[1]) and (cvd_delta > 0)
+    status := "Longs Opening"
+    status_color := color.green
+else if ((OI-OI[chg_b]) > 0) and (close < close[1]) and (cvd_delta < 0)
+    status := "Shorts Opening"
+    status_color := color.red
+else if((OI-OI[chg_b]) < 0) and (close < close[1]) and (cvd_delta < 0)
+    status := "Longs Closing"
+    status_color := color.red
+else if((OI-OI[chg_b]) < 0) and (close > close[1]) and (cvd_delta > 0)
+    status := "Shorts Closing"
+    status_color := color.green
+
+else if (close < close[1]) and (cvd_delta > 0)
+    status := "Bearish Divergence"
+    status_color := color.red
+else if (close > close[1]) and (cvd_delta < 0)
+    status := "Bullish Divergence"
+    status_color := color.green
+
+else if ((OI-OI[chg_b]) > 0) and (close > close[1])
+    status := "Longs Opening (Weak)"
+    status_color := color.yellow
+else if ((OI-OI[chg_b]) > 0) and (close < close[1]) 
+    status := "Shorts Opening (Weak)"
+    status_color := color.yellow
+else if((OI-OI[chg_b]) < 0) and (close < close[1])
+    status := "Longs Closing (Weak)"
+    status_color := color.yellow
+else if((OI-OI[chg_b]) < 0) and (close > close[1]) 
+    status := "Shorts Closing (Weak)"        
+    status_color := color.yellow
+else     
+    status := "Neutral"
+
+//Generating tables for Stats
+var infoTable = table.new(position = position.top_right, columns = 4, rows = 5, bgcolor=color.new(#696969, 80),border_width = 1, border_color = color.black)
+if barstate.islast
+    table.cell(table_id = infoTable, column = 0, row = 0, text = "Dynamic Stop Loss:", text_color = color.white,  text_size=size.auto) 
+    table.cell(table_id = infoTable, column = 1, row = 0, text = "$ "+str.tostring(ma_ATRTrailingStop,"0.0000"),  text_color = status_color,   text_size=size.auto) 
+    table.cell(table_id = infoTable, column = 0, row = 1, text = str.tostring(status), text_color = status_color)
+    table.merge_cells(infoTable, 0, 1, 1, 1)
+
+barcolor( (close > ma_ATRTrailingStop) and (close > twentyfiveEma) ? color.green : (close < ma_ATRTrailingStop) and (close < twentyfiveEma)? color.red :   color.yellow , title = 'Candle Colors' )
+
+if(atr_buy)
+    alert("Long Alert for "+syminfo.tickerid, alert.freq_once_per_bar_close)
+if(atr_sell)
+    alert("Short Alert for "+syminfo.tickerid, alert.freq_once_per_bar_close)        
+
+if(ta.cross(close,ma_ATRTrailingStop))
+    alert("Dynamic Stop Level Reached", alert.freq_once_per_bar)
